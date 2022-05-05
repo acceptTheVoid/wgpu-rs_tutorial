@@ -24,6 +24,7 @@ struct State {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     size: winit::dpi::PhysicalSize<u32>,
+    render_pipeline: wgpu::RenderPipeline,
     clear_color: wgpu::Color,
     frames: usize,
 }
@@ -32,7 +33,7 @@ impl State {
     async fn new(window: &Window) -> Self {
         let size = window.inner_size();
 
-        let instance = wgpu::Instance::new(wgpu::Backends::all());
+        let instance = wgpu::Instance::new(wgpu::Backends::VULKAN);
         let surface = unsafe { instance.create_surface(window) };
         let adapter = instance.request_adapter(
             &wgpu::RequestAdapterOptions {
@@ -64,6 +65,57 @@ impl State {
         };
         surface.configure(&device, &config);
 
+        let shader = 
+            device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+                label: Some("Shader"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
+            });
+
+        // let shader = device.create_shader_module(&include_wgsl!("shader.wgsl"));
+
+        let render_pipeline_layout = 
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Render Pipeline Layout"),
+                bind_group_layouts: &[],
+                push_constant_ranges: &[],
+            });
+
+        let render_pipeline = device.create_render_pipeline(
+            &wgpu::RenderPipelineDescriptor {
+                label: Some("Render Pipeline"),
+                layout: Some(&render_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: "vs_main",
+                    buffers: &[],
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: "fs_main",
+                    targets: &[wgpu::ColorTargetState {
+                        format: config.format,
+                        blend: Some(wgpu::BlendState::REPLACE),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    }],
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: Some(wgpu::Face::Back),
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    unclipped_depth: false,
+                    conservative: false,
+                },
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState {
+                    count: 1,
+                    mask: !0,
+                    alpha_to_coverage_enabled: false,
+                },
+                multiview: None,
+            });
+
         let clear_color = STARTING_COLOR;
 
         Self {
@@ -74,6 +126,7 @@ impl State {
             queue,
             config,
             size,
+            render_pipeline,
             clear_color,
             frames: 0,
         }
@@ -88,7 +141,9 @@ impl State {
         }
     }
 
+    #[allow(unreachable_code)]
     fn input(&mut self, event: &WindowEvent) -> bool {
+        return false;
         match event {
             WindowEvent::CursorMoved { position, .. } => {
                 self.clear_color = wgpu::Color {
@@ -119,26 +174,31 @@ impl State {
             label: Some("Render Encoder"),
         });
 
+        #[allow(unused_mut)]
         let mut new_clear_color = self.clear_color;
-        new_clear_color.g = if (self.frames / 1000) % 2 == 0 {
-            (self.frames % 1000) as f64 / 1000.
-        } else {
-            (1000. - (self.frames % 1000) as f64) / 1000.
-        };
+        // new_clear_color.g = if (self.frames / 1000) % 2 == 0 {
+        //     (self.frames % 1000) as f64 / 1000.
+        // } else {
+        //     (1000. - (self.frames % 1000) as f64) / 1000.
+        // };
 
-        let _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Render Pass"),
-            color_attachments: &[wgpu::RenderPassColorAttachment {
-                view: &view,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(new_clear_color),
-                    store: true,
-                },
-            }],
+            color_attachments: &[
+                wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(new_clear_color),
+                        store: true,
+                    },
+                }],
             depth_stencil_attachment: None,
         });
-        drop(_render_pass);
+
+        render_pass.set_pipeline(&self.render_pipeline);
+        render_pass.draw(0..3, 0..1);
+        drop(render_pass);
 
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
@@ -182,7 +242,7 @@ pub async fn run() {
     let mut state = State::new(&window).await;
 
     event_loop.run(move |event, _, control_flow| {
-        state.frames += 5;
+        state.frames += 2;
         match event {
             Event::WindowEvent {
                 ref event,
