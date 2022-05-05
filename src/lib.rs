@@ -25,7 +25,7 @@ struct State {
     config: wgpu::SurfaceConfiguration,
     size: winit::dpi::PhysicalSize<u32>,
     clear_color: wgpu::Color,
-    //frames: usize,
+    frames: usize,
 }
 
 impl State {
@@ -120,11 +120,11 @@ impl State {
         });
 
         let mut new_clear_color = self.clear_color;
-        // new_clear_color.g = if (self.frames / 1000) % 2 == 0 {
-        //     (self.frames % 1000) as f64 / 1000.
-        // } else {
-        //     (1000. - (self.frames % 1000) as f64) / 1000.
-        // };
+        new_clear_color.g = if (self.frames / 1000) % 2 == 0 {
+            (self.frames % 1000) as f64 / 1000.
+        } else {
+            (1000. - (self.frames % 1000) as f64) / 1000.
+        };
 
         let _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Render Pass"),
@@ -182,7 +182,7 @@ pub async fn run() {
     let mut state = State::new(&window).await;
 
     event_loop.run(move |event, _, control_flow| {
-        //state.frames += 1;
+        state.frames += 5;
         match event {
             Event::WindowEvent {
                 ref event,
