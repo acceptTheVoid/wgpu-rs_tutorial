@@ -7,13 +7,25 @@ use winit::{
 #[cfg(target_arch="wasm32")]
 use wasm_bindgen::prelude::*;
 
+const STARTING_COLOR: wgpu::Color = wgpu::Color {
+    r: 0.1, 
+    g: 0.2,
+    b: 0.3,
+    a: 1.0
+};
+
 struct State {
+    #[allow(dead_code)]
+    instance: wgpu::Instance,
+    #[allow(dead_code)]
+    adapter: wgpu::Adapter,
     surface: wgpu::Surface,
     device: wgpu::Device,
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     size: winit::dpi::PhysicalSize<u32>,
     clear_color: wgpu::Color,
+    //frames: usize,
 }
 
 impl State {
@@ -52,20 +64,18 @@ impl State {
         };
         surface.configure(&device, &config);
 
-        let clear_color = wgpu::Color {
-            r: 0.1, 
-            g: 0.2,
-            b: 0.3,
-            a: 1.0
-        };
+        let clear_color = STARTING_COLOR;
 
         Self {
+            instance,
+            adapter,
             surface,
             device,
             queue,
             config,
             size,
             clear_color,
+            frames: 0,
         }
     }
 
@@ -79,7 +89,23 @@ impl State {
     }
 
     fn input(&mut self, event: &WindowEvent) -> bool {
-        false
+        match event {
+            WindowEvent::CursorMoved { position, .. } => {
+                self.clear_color = wgpu::Color {
+                    r: position.x / self.size.width as f64,
+                    g: position.y / self.size.height as f64,
+                    b: self.clear_color.g,
+                    a: 1.0
+                };
+                true
+            }
+            _ => {
+                // if self.clear_color != STARTING_COLOR {
+                //     self.clear_color = STARTING_COLOR;
+                // }
+                false
+            }
+        }
     }
 
     fn update(&mut self) {
@@ -93,13 +119,20 @@ impl State {
             label: Some("Render Encoder"),
         });
 
+        let mut new_clear_color = self.clear_color;
+        // new_clear_color.g = if (self.frames / 1000) % 2 == 0 {
+        //     (self.frames % 1000) as f64 / 1000.
+        // } else {
+        //     (1000. - (self.frames % 1000) as f64) / 1000.
+        // };
+
         let _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Render Pass"),
             color_attachments: &[wgpu::RenderPassColorAttachment {
                 view: &view,
                 resolve_target: None,
                 ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(self.clear_color),
+                    load: wgpu::LoadOp::Clear(new_clear_color),
                     store: true,
                 },
             }],
@@ -149,14 +182,14 @@ pub async fn run() {
     let mut state = State::new(&window).await;
 
     event_loop.run(move |event, _, control_flow| {
+        //state.frames += 1;
         match event {
             Event::WindowEvent {
                 ref event,
                 window_id,
-            } if window_id == window.id() => if !state.input(event) { // UPDATED!
+            } if window_id == window.id() => if !state.input(event) {
                 match event {
-                    WindowEvent::CloseRequested
-                    | WindowEvent::KeyboardInput {
+                    WindowEvent::CloseRequested | WindowEvent::KeyboardInput {
                         input:
                             KeyboardInput {
                                 state: ElementState::Pressed,
