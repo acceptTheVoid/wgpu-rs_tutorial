@@ -8,9 +8,9 @@ use winit::{
 use wasm_bindgen::prelude::*;
 
 const STARTING_COLOR: wgpu::Color = wgpu::Color {
-    r: 0.1, 
-    g: 0.2,
-    b: 0.3,
+    r: 1., 
+    g: 1.,
+    b: 1.,
     a: 1.0
 };
 
@@ -25,8 +25,11 @@ struct State {
     config: wgpu::SurfaceConfiguration,
     size: winit::dpi::PhysicalSize<u32>,
     render_pipeline: wgpu::RenderPipeline,
+    challenge_render_pipeline: wgpu::RenderPipeline,
     clear_color: wgpu::Color,
     frames: usize,
+    mouse: bool,
+    use_color: bool,
 }
 
 impl State {
@@ -65,13 +68,14 @@ impl State {
         };
         surface.configure(&device, &config);
 
-        let shader = 
-            device.create_shader_module(&wgpu::ShaderModuleDescriptor {
-                label: Some("Shader"),
-                source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
-            });
+        // let shader = 
+        //     device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+        //         label: Some("Shader"),
+        //         source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
+        //     });
 
-        // let shader = device.create_shader_module(&include_wgsl!("shader.wgsl"));
+        let shader = device
+            .create_shader_module(&wgpu::include_wgsl!("shaders/shader.wgsl"));
 
         let render_pipeline_layout = 
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -81,6 +85,52 @@ impl State {
             });
 
         let render_pipeline = device.create_render_pipeline(
+            &wgpu::RenderPipelineDescriptor {
+                label: Some("Render Pipeline"),
+                layout: Some(&render_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: "vs_main",
+                    buffers: &[],
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: "fs_main",
+                    targets: &[wgpu::ColorTargetState {
+                        format: config.format,
+                        blend: Some(wgpu::BlendState::REPLACE),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    }],
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: Some(wgpu::Face::Back),
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    unclipped_depth: false,
+                    conservative: false,
+                },
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState {
+                    count: 1,
+                    mask: !0,
+                    alpha_to_coverage_enabled: false,
+                },
+                multiview: None,
+            });
+
+        let shader = device
+            .create_shader_module(&wgpu::include_wgsl!("shaders/challenge.wgsl"));
+
+        let render_pipeline_layout = 
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Render Pipeline Layout"),
+                bind_group_layouts: &[],
+                push_constant_ranges: &[],
+            });
+
+        let challenge_render_pipeline = device.create_render_pipeline(
             &wgpu::RenderPipelineDescriptor {
                 label: Some("Render Pipeline"),
                 layout: Some(&render_pipeline_layout),
@@ -127,8 +177,11 @@ impl State {
             config,
             size,
             render_pipeline,
+            challenge_render_pipeline,
             clear_color,
             frames: 0,
+            mouse: false,
+            use_color: false,
         }
     }
 
@@ -143,7 +196,7 @@ impl State {
 
     #[allow(unreachable_code)]
     fn input(&mut self, event: &WindowEvent) -> bool {
-        return false;
+        // return false;
         match event {
             WindowEvent::CursorMoved { position, .. } => {
                 self.clear_color = wgpu::Color {
@@ -152,12 +205,30 @@ impl State {
                     b: self.clear_color.g,
                     a: 1.0
                 };
+                self.mouse = true;
+                true
+            }
+            WindowEvent::KeyboardInput { 
+                input: 
+                    KeyboardInput { 
+                        state, 
+                        virtual_keycode: Some(VirtualKeyCode::Space),
+                        ..
+                    },
+                ..
+            } => {
+                self.use_color = if *state == ElementState::Pressed { 
+                    !self.use_color 
+                } else { 
+                    self.use_color 
+                };
                 true
             }
             _ => {
-                // if self.clear_color != STARTING_COLOR {
-                //     self.clear_color = STARTING_COLOR;
-                // }
+                self.mouse = false;
+                if self.clear_color != STARTING_COLOR {
+                    self.clear_color = STARTING_COLOR;
+                }
                 false
             }
         }
@@ -176,11 +247,13 @@ impl State {
 
         #[allow(unused_mut)]
         let mut new_clear_color = self.clear_color;
-        // new_clear_color.g = if (self.frames / 1000) % 2 == 0 {
-        //     (self.frames % 1000) as f64 / 1000.
-        // } else {
-        //     (1000. - (self.frames % 1000) as f64) / 1000.
-        // };
+        if !self.mouse {
+            new_clear_color.g = if (self.frames / 1000) % 2 == 0 {
+                (self.frames % 1000) as f64 / 1000.
+            } else {
+                (1000. - (self.frames % 1000) as f64) / 1000.
+            };
+        }
 
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Render Pass"),
@@ -196,7 +269,11 @@ impl State {
             depth_stencil_attachment: None,
         });
 
-        render_pass.set_pipeline(&self.render_pipeline);
+        if !self.use_color {
+            render_pass.set_pipeline(&self.render_pipeline)
+        } else {
+            render_pass.set_pipeline(&self.challenge_render_pipeline)
+        }
         render_pass.draw(0..3, 0..1);
         drop(render_pass);
 
@@ -240,9 +317,10 @@ pub async fn run() {
     }
 
     let mut state = State::new(&window).await;
+    state.frames = (state.clear_color.g * 1000f64) as usize;
 
     event_loop.run(move |event, _, control_flow| {
-        state.frames += 2;
+        // state.frames += 2;
         match event {
             Event::WindowEvent {
                 ref event,
